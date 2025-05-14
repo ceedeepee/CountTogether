@@ -1,0 +1,12 @@
+{
+    "name": "Count Together Miniapp",
+    "slug": "count-together",
+    "type": "frame",
+    "entrypoint": "/counttogether/index.html",
+    "displayName": "Count Together",
+    "icon": "/counttogether/icon.png",
+    "allow": {
+      "frame": { "params": ["cast"], "actions": [] }
+    }
+  }
+  
