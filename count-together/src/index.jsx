@@ -115,8 +115,17 @@ function App() {
     
     console.log("Button clicked, sending update with groupId:", groupId);
     
-    // Publish increment event to the model
-    session.publish(session.id, "increment", groupId);
+    // Use Multisynq.Session.current.view to publish events
+    try {
+      Multisynq.Session.current.publish(Multisynq.Session.current.id, "increment", groupId);
+    } catch (e) {
+      console.error("Error publishing to session:", e);
+      // Fallback - just update local scores
+      const updatedScores = {...scores};
+      updatedScores[groupId] = (updatedScores[groupId] || 0) + 1;
+      setScores(updatedScores);
+      eventBus.publish("scoresUpdated", updatedScores);
+    }
   };
 
   // Render the leaderboard
