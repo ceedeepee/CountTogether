@@ -117,7 +117,12 @@ function App() {
     
     // Use Multisynq.Session.current.view to publish events
     try {
-      Multisynq.Session.current.publish(Multisynq.Session.current.id, "increment", groupId);
+      // console.log("Publishing to session:", Multisynq.Session.current.id, groupId);
+      if (groupId) {
+        Multisynq.Session.current.publish(Multisynq.Session.current.id, "increment", groupId);
+      } else {
+        Multisynq.Session.current.publish(Multisynq.Session.current.id, "increment", 1234);
+      }
     } catch (e) {
       console.error("Error publishing to session:", e);
       // Fallback - just update local scores
