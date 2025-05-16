@@ -3,7 +3,58 @@ import ReactDOM from "react-dom/client";
 import * as Multisynq from "@multisynq/client";
 import { sdk } from "@farcaster/frame-sdk";
 
-// Simple React-based implementation without class registration
+// Custom event handler to bridge Multisynq and React
+const eventBus = {
+  callbacks: {},
+  subscribe: function(event, callback) {
+    if (!this.callbacks[event]) this.callbacks[event] = [];
+    this.callbacks[event].push(callback);
+    return { event, callback };
+  },
+  publish: function(event, data) {
+    if (!this.callbacks[event]) return;
+    this.callbacks[event].forEach(callback => callback(data));
+  },
+  unsubscribe: function(subscription) {
+    const { event, callback } = subscription;
+    if (!this.callbacks[event]) return;
+    this.callbacks[event] = this.callbacks[event].filter(cb => cb !== callback);
+  }
+};
+
+// Define the model following the Croquet pattern
+class ScoreModel extends Multisynq.Model {
+  init() {
+    this.scores = {};
+    this.subscribe(this.id, "increment", this.increment);
+  }
+
+  increment(groupId) {
+    this.scores[groupId] = (this.scores[groupId] || 0) + 1;
+    this.publish("scoresUpdated", this.scores);
+  }
+}
+ScoreModel.register("ScoreModel");
+
+// View class that connects the model to our event bus
+class ScoreView extends Multisynq.View {
+  constructor(model) {
+    super(model);
+    this.model = model;
+    
+    // Subscribe to model events and forward to our event bus
+    this.subscribe(this.model.id, "scoresUpdated", scores => {
+      eventBus.publish("scoresUpdated", scores);
+    });
+    
+    // Initialize with current scores if available
+    if (this.model.scores) {
+      eventBus.publish("scoresUpdated", this.model.scores);
+    }
+  }
+}
+
+// React component
 function App() {
   const [scores, setScores] = useState({});
   const [session, setSession] = useState(null);
@@ -11,52 +62,48 @@ function App() {
 
   // Initialize the session
   useEffect(() => {
-    console.log("Setting up direct Multisynq connection");
+    console.log("Setting up Multisynq connection");
     
-    // Create a direct session connection without model/view params
-    const sessionPromise = Multisynq.Session.join({
+    // Use a direct Multisynq join with model and view
+    Multisynq.Session.join({
       apiKey: "2r86zJKnHkIahoswFE2W5fsbuOhfnkTKRFqU0OncfI",
       appId: "com.example.countTogether",
       name: "global-count",
-      password: "public"
-    });
-    
-    let cleanup = null;
-    
-    sessionPromise.then(async sessionInstance => {
-      console.log("Session joined successfully:", sessionInstance);
+      password: "public",
+      model: ScoreModel,
+      view: ScoreView
+    }).then(sessionInstance => {
+      console.log("Session joined successfully", sessionInstance);
       setSession(sessionInstance);
       
       // Get Farcaster context if available
-      try {
-        const context = await sdk.context;
+      sdk.context.then(context => {
         if (context?.cast?.hash) {
           setGroupId(context.cast.hash);
           console.log("Farcaster context set groupId to:", context.cast.hash);
         }
-      } catch (e) {
+      }).catch(e => {
         console.error("Failed to get Farcaster context:", e);
-      }
+      });
 
-      // Subscribe to score updates
-      const subscription = sessionInstance.subscribe(sessionInstance.id, "scoresUpdated", updatedScores => {
+      // Subscribe to our event bus instead of directly to the session
+      const subscription = eventBus.subscribe("scoresUpdated", updatedScores => {
         console.log("Received score update:", updatedScores);
         setScores(updatedScores);
       });
       
-      // Setup cleanup
-      cleanup = () => {
+      return () => {
         console.log("Cleaning up session");
-        sessionInstance.unsubscribe(subscription);
-        sessionInstance.leave();
+        eventBus.unsubscribe(subscription);
+        try {
+          sessionInstance.leave();
+        } catch (e) {
+          console.error("Error during cleanup:", e);
+        }
       };
     }).catch(error => {
       console.error("Session join error:", error);
     });
-    
-    return () => {
-      if (cleanup) cleanup();
-    };
   }, []);
 
   // Handle button click
@@ -68,19 +115,16 @@ function App() {
     
     console.log("Button clicked, sending update with groupId:", groupId);
     
-    // Update scores directly
-    const updatedScores = {...scores};
-    updatedScores[groupId] = (updatedScores[groupId] || 0) + 1;
-    
-    // Publish the updated scores
-    session.publish(session.id, "scoresUpdated", updatedScores);
-    
-    // Update local state immediately
-    setScores(updatedScores);
+    // Publish increment event to the model
+    session.publish(session.id, "increment", groupId);
   };
 
   // Render the leaderboard
   const renderLeaderboard = () => {
+    if (Object.keys(scores).length === 0) {
+      return <li>No scores yet</li>;
+    }
+    
     return Object.entries(scores)
       .sort((a, b) => b[1] - a[1])
       .map(([group, count], index) => (
