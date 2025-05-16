@@ -3,32 +3,7 @@ import ReactDOM from "react-dom/client";
 import * as Multisynq from "@multisynq/client";
 import { sdk } from "@farcaster/frame-sdk";
 
-// Properly define the model class following Croquet patterns
-class CountModel extends Multisynq.Model {
-  init() {
-    this.scores = {};
-    this.subscribe(this.sessionId, "incrementScore", this.incrementScore);
-  }
-
-  incrementScore(groupId) {
-    this.scores[groupId] = (this.scores[groupId] || 0) + 1;
-    this.publish("scoresUpdated", this.scores);
-  }
-}
-// Register using the static method at the class level
-Multisynq.Model.register("CountModel", CountModel);
-
-class CountView extends Multisynq.View {
-  constructor(model) {
-    super(model);
-    this.model = model;
-    // React component will handle subscriptions directly
-  }
-}
-// Register the view
-Multisynq.View.register("CountView", CountView);
-
-// Main React component
+// Simple React-based implementation without class registration
 function App() {
   const [scores, setScores] = useState({});
   const [session, setSession] = useState(null);
@@ -38,20 +13,17 @@ function App() {
   useEffect(() => {
     console.log("Setting up direct Multisynq connection");
     
-    // First initialize the Multisynq Model system
-    // This prevents "Model class not registered" errors
-    const initPromise = Multisynq.Session.join({
+    // Create a direct session connection without model/view params
+    const sessionPromise = Multisynq.Session.join({
       apiKey: "2r86zJKnHkIahoswFE2W5fsbuOhfnkTKRFqU0OncfI",
       appId: "com.example.countTogether",
       name: "global-count",
-      password: "public",
-      model: CountModel,
-      view: CountView
+      password: "public"
     });
     
     let cleanup = null;
     
-    initPromise.then(async sessionInstance => {
+    sessionPromise.then(async sessionInstance => {
       console.log("Session joined successfully:", sessionInstance);
       setSession(sessionInstance);
       
@@ -66,23 +38,11 @@ function App() {
         console.error("Failed to get Farcaster context:", e);
       }
 
-      // Listen for score updates
+      // Subscribe to score updates
       const subscription = sessionInstance.subscribe(sessionInstance.id, "scoresUpdated", updatedScores => {
         console.log("Received score update:", updatedScores);
         setScores(updatedScores);
       });
-
-      // Get initial scores from the model
-      if (sessionInstance.vm && sessionInstance.vm.models) {
-        const models = Object.values(sessionInstance.vm.models);
-        for (const model of models) {
-          if (model.scores) {
-            console.log("Found existing scores:", model.scores);
-            setScores(model.scores);
-            break;
-          }
-        }
-      }
       
       // Setup cleanup
       cleanup = () => {
@@ -108,8 +68,15 @@ function App() {
     
     console.log("Button clicked, sending update with groupId:", groupId);
     
-    // Publish to the model to increment score
-    session.publish(session.id, "incrementScore", groupId);
+    // Update scores directly
+    const updatedScores = {...scores};
+    updatedScores[groupId] = (updatedScores[groupId] || 0) + 1;
+    
+    // Publish the updated scores
+    session.publish(session.id, "scoresUpdated", updatedScores);
+    
+    // Update local state immediately
+    setScores(updatedScores);
   };
 
   // Render the leaderboard
